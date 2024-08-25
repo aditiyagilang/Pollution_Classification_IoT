@@ -32,13 +32,13 @@ const long interval = 2000;
 #define ADC_Bit_Resolution 10
 #define RatioMQ2CleanAir 9.83
 #define RatioMQ135CleanAir 3.6
-#define RatioMQ131CleanAir 1.0  // Adjust this value based on the sensor's datasheet
+#define RatioMQ131CleanAir 15  // Adjust this value based on the sensor's datasheet
 
 float factorEscala = 0.16875F;
 
 MQUnifiedsensor MQ2(placa, mq2);
 MQUnifiedsensor MQ135(placa, Voltage_Resolution, ADC_Bit_Resolution, pin, mq135);
-MQUnifiedsensor MQ131(placa, Voltage_Resolution, ADC_Bit_Resolution, A1, mq131);  // Initialize MQ131 sensor
+MQUnifiedsensor MQ131(placa,  mq131);  // Initialize MQ131 sensor
 
 Adafruit_ADS1115 ads;
 
@@ -158,8 +158,8 @@ void loop()
   MQ2.setB(-3.109);
   float MQ2_HC = MQ2.readSensor();
 
-  MQ131.setA(1.0); // Example values, please adjust based on the sensor's datasheet
-  MQ131.setB(0.0);
+  MQ131.setA(23.943); // Example values, please adjust based on the sensor's datasheet
+  MQ131.setB(-1.11);
   float MQ131_O3 = MQ131.readSensor();
 
   durationPM1 = pulseIn(PM1PIN, LOW);
@@ -237,24 +237,41 @@ void loop()
   Serial.print("ISPU O3:\t");
   Serial.print(ISPU_O3, 2);
   Serial.println(" ");
-  
-  unsigned long currentMillis = millis();
 
-   if (currentMillis - previousMillis >= interval)
+    unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= interval)
   {
     previousMillis = currentMillis;
     Serial.print("Sending data to server: ");
     if (WiFi.status() == WL_CONNECTED)
     {
-      WiFiClientSecure client; // Use WiFiClientSecure for HTTPS
-      client.setInsecure(); // Disable certificate verification for simplicity, not recommended for production
+      WiFiClient client; // Use WiFiClient for HTTP
       HTTPClient http;
 
-      String url = serverPath + "?ESP-ID=" + espId + "&PM10=" + PM10 + "&PM25=" + PM25 + "&CO=" + MQ135_CO + "&HC=" + MQ2_HC +
-                   "&ISPU_PM10=" + ISPU_PM10 + "&ISPU_PM25=" + ISPU_PM25 + "&ISPU_CO=" + ISPU_CO + "&ISPU_HC=" + ISPU_HC;
-      Serial.println(url); // Print the URL for debugging
-      http.begin(client, url);
-      int httpResponseCode = http.GET();
+      // Create JSON object
+      JSONVar jsonData;
+      jsonData["ESP-ID"] = espId;
+      jsonData["PM10"] = PM10;
+      jsonData["PM25"] = PM25;
+      jsonData["CO"] = MQ135_CO;
+      jsonData["HC"] = MQ2_HC;
+      jsonData["O3"] = MQ131_O3;
+      jsonData["ISPU_PM10"] = ISPU_PM10;
+      jsonData["ISPU_PM25"] = ISPU_PM25;
+      jsonData["ISPU_CO"] = ISPU_CO;
+      jsonData["ISPU_HC"] = ISPU_HC;
+      jsonData["ISPU_O3"] = ISPU_O3;
+
+      String jsonString = JSON.stringify(jsonData);
+      
+      Serial.println("Sending JSON:");
+      Serial.println(jsonString);
+
+      // Set up the HTTP POST request
+      http.begin(client, serverPath);
+      http.addHeader("Content-Type", "application/json");
+      int httpResponseCode = http.POST(jsonString);
 
       if (httpResponseCode == HTTP_CODE_TEMPORARY_REDIRECT || httpResponseCode == HTTP_CODE_PERMANENT_REDIRECT)
       {
@@ -263,7 +280,7 @@ void loop()
         Serial.println(newLocation);
         http.end(); // End the previous connection
         http.begin(client, newLocation); // Begin a new connection with the new URL
-        httpResponseCode = http.GET(); // Retry the request
+        httpResponseCode = http.POST(jsonString); // Retry the request
       }
 
       if (httpResponseCode > 0)
@@ -285,16 +302,50 @@ void loop()
   }
 }
 
-float calculateConcentration10(unsigned long duration, int time)
+float calculateConcentrationpm10(long lowpulseInMicroSeconds, long durationinSeconds)
 {
-  float ratio = duration / (sampletime_ms * 10.0);
-  return 1.1 * pow(ratio, 3) - 3.8 * pow(ratio, 2) + 520 * ratio + 0.62;
+
+  // float ratio = (lowpulseInMicroSeconds / 1000000.0) / 30.0 * 100.0; // Calculate the ratio
+  // float concentration = 0.001915 * pow(ratio,2) + 0.09522 * ratio - 0.04884;//Calculate the mg/m3
+    float ratio = lowpulseInMicroSeconds/(sampletime_ms*10.0);  // Integer percentage 0=>100
+    float concentration = 0.518*pow(ratio,3)-4.25*pow(ratio,2)+570.7*ratio+0.78;
+  // Serial.print("lowpulseoccupancy:");
+  // Serial.print(lowpulseInMicroSeconds);
+  // Serial.print("    ratio:");
+  // Serial.print(ratio);
+  // Serial.print("    Concentration:");
+  // Serial.println(concentration);
+  return concentration;
 }
 
-float calculateConcentration25(unsigned long duration, int time)
+float calculateConcentration25(long lowpulseInMicroSeconds, long durationinSeconds)
 {
-  float ratio = duration / (sampletime_ms * 10.0);
-  return 0.52 * pow(ratio, 3) - 0.85 * pow(ratio, 2) + 850 * ratio + 0.01;
+
+  float ratio = (lowpulseInMicroSeconds / 1000000.0) / 30.0 * 100.0; // Calculate the ratio
+  // float concentration = 0.001915 * pow(ratio,2) + 0.09522 * ratio - 0.04884;//Calculate the mg/m3
+  float concentration = 0.001915 * pow(ratio,2) + 0.09522 * ratio;//Calculate the mg/m3
+  // Serial.print("lowpulseoccupancy:");
+  // Serial.print(lowpulseInMicroSeconds);
+  // Serial.print("    ratio:");
+  // Serial.print(ratio);
+  // Serial.print("    Concentration:");
+  // Serial.println(concentration);
+  return concentration;
+}
+
+float calculateConcentration10(long lowpulseInMicroSeconds, long durationinSeconds)
+{
+
+  float ratio = (lowpulseInMicroSeconds / 1000000.0) / 30.0 * 100.0; // Calculate the ratio
+  float concentration = 0.001915 * pow(ratio,2) + 0.09522 * ratio - 0.04884;//Calculate the mg/m3
+  // float concentration = 0.001915 * pow(ratio,2) + 0.09522 * ratio;//Calculate the mg/m3
+  // Serial.print("lowpulseoccupancy:");
+  // Serial.print(lowpulseInMicroSeconds);
+  // Serial.print("    ratio:");
+  // Serial.print(ratio);
+  // Serial.print("    Concentration:");
+  // Serial.println(concentration);
+  return concentration;
 }
 
 float calculateISPU_PM10(float concentration)
@@ -336,7 +387,6 @@ float calculateISPU_HC(float concentration)
   else if (concentration <= 360) return (concentration - 300) * (300 - 200) / (360 - 300) + 200;
   else return 500; // Above 360 is considered as 500
 }
-
 float calculateISPU_O3(float concentration)
 {
   if (concentration <= 0.05) return concentration * 50 / 0.05;
@@ -346,4 +396,3 @@ float calculateISPU_O3(float concentration)
   else if (concentration <= 0.4) return (concentration - 0.3) * (300 - 200) / (0.4 - 0.3) + 200;
   else return 500; // Above 0.4 is considered as 500
 }
-
