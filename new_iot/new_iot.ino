@@ -42,9 +42,9 @@ MQUnifiedsensor MQ131(placa,  mq131);  // Initialize MQ131 sensor
 
 Adafruit_ADS1115 ads;
 
-const char* ssid = "KEDAI FILOSOFI";
-const char* password = "filosofi00";
-const String serverPath = "http://192.168.2.12:5000/api/esp/data"; // Use HTTP for simplicity
+const char* ssid = "V2029";
+const char* password = "12345678";
+const String serverPath = "http://pollution.myasing.my.id/api/esp/data"; // Use HTTP for simplicity
 String espId = "ESP8266_1";
 
 void setup(void)
@@ -52,14 +52,24 @@ void setup(void)
   Serial.begin(9600);
   delay(200);
 
+
+
   pinMode(LED_BUILTIN, OUTPUT);
+
+  pinMode(D3, OUTPUT);
+  pinMode(D4, OUTPUT);
+  pinMode(D7, OUTPUT);
+  pinMode(D8, OUTPUT);
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED)
   {
     Serial.print(".");
     digitalWrite(LED_BUILTIN, HIGH);
+    digitalWrite(D4, HIGH);  
+    delay(500);
     delay(500);
   }
+  digitalWrite(D4, LOW);
   digitalWrite(LED_BUILTIN, LOW);
 
   pinMode(PM1PIN, INPUT);
@@ -87,9 +97,11 @@ void setup(void)
     MQ135.update();
     calcR0MQ135 += MQ135.calibrate(RatioMQ135CleanAir);
     Serial.print(".");
+     digitalWrite(D7, HIGH);
   }
   MQ135.setR0(calcR0MQ135 / 10);
   Serial.println("  done for MQ-135.");
+   digitalWrite(D7, LOW);
 
   Serial.print("Calibrating MQ-2 please wait.");
   float calcR0MQ2 = 0;
@@ -100,9 +112,11 @@ void setup(void)
     MQ2.externalADCUpdate(voltiosMQ2);
     calcR0MQ2 += MQ2.calibrate(RatioMQ2CleanAir);
     Serial.print(".");
+     digitalWrite(D7, HIGH);
   }
   MQ2.setR0(calcR0MQ2 / 10);
   Serial.println("  done for MQ-2.");
+   digitalWrite(D7, LOW);
 
   Serial.print("Calibrating MQ-131 please wait.");
   float calcR0MQ131 = 0;
@@ -113,9 +127,11 @@ void setup(void)
     MQ131.externalADCUpdate(voltiosMQ131);
     calcR0MQ131 += MQ131.calibrate(RatioMQ131CleanAir);
     Serial.print(".");
+      digitalWrite(D7, HIGH);
   }
   MQ131.setR0(calcR0MQ131 / 10);
   Serial.println("  done for MQ-131.");
+   digitalWrite(D7, LOW);
 }
 
 void reconnectWiFi()
@@ -132,10 +148,12 @@ void reconnectWiFi()
   if (WiFi.status() == WL_CONNECTED)
   {
     digitalWrite(LED_BUILTIN, LOW);
+     digitalWrite(D4, LOW);
   }
   else
   {
     digitalWrite(LED_BUILTIN, HIGH);
+     digitalWrite(D4, HIGH);
   }
 }
 
@@ -190,6 +208,11 @@ void loop()
     lowpulseoccupancyPM1 = 0;
     lowpulseoccupancyPM25 = 0;
     starttime = millis();
+    if (PM10 == 0.00 || PM25 == 0.00 || MQ135_CO == 0.00 || MQ2_HC == 0.00 || MQ131_O3 == 0.00) {
+      digitalWrite(D8, HIGH);  // Turn on LED on D8
+    } else {
+      digitalWrite(D8, LOW);   // Turn off LED on D8
+    }
 
   }
 
@@ -287,11 +310,13 @@ void loop()
       {
         Serial.print("HTTP Response code: ");
         Serial.println(httpResponseCode);
+   
       }
       else
       {
         Serial.print("Error code: ");
         Serial.println(httpResponseCode);
+         digitalWrite(D3, HIGH);
       }
       http.end();
     }
